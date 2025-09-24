@@ -1,9 +1,9 @@
-import chromadb
-from chromadb.config import Settings
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from models import Course, CourseChunk
-from sentence_transformers import SentenceTransformer
+from typing import Any, Dict, List, Optional
+
+import chromadb
+import models
+
 
 @dataclass
 class SearchResults:
@@ -39,7 +39,7 @@ class VectorStore:
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
             path=chroma_path,
-            settings=Settings(anonymized_telemetry=False)
+            settings=chromadb.config.Settings(anonymized_telemetry=False),
         )
         
         # Set up sentence transformer embedding function
@@ -132,7 +132,7 @@ class VectorStore:
             
         return {"lesson_number": lesson_number}
     
-    def add_course_metadata(self, course: Course):
+    def add_course_metadata(self, course: models.Course):
         """Add course information to the catalog for semantic search"""
         import json
 
@@ -159,7 +159,7 @@ class VectorStore:
             ids=[course.title]
         )
     
-    def add_course_content(self, chunks: List[CourseChunk]):
+    def add_course_content(self, chunks: List[models.CourseChunk]):
         """Add course content chunks to the vector store"""
         if not chunks:
             return

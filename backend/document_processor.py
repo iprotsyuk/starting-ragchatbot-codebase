@@ -1,7 +1,7 @@
 import os
 import re
 from typing import List, Tuple
-from models import Course, Lesson, CourseChunk
+import models
 
 class DocumentProcessor:
     """Processes course documents and extracts structured information"""
@@ -19,8 +19,6 @@ class DocumentProcessor:
             # If UTF-8 fails, try with error handling
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
                 return file.read()
-    
-
 
     def chunk_text(self, text: str) -> List[str]:
         """Split text into sentence-based chunks with overlap using config settings"""
@@ -90,11 +88,7 @@ class DocumentProcessor:
         
         return chunks
 
-
-
-
-    
-    def process_course_document(self, file_path: str) -> Tuple[Course, List[CourseChunk]]:
+    def process_course_document(self, file_path: str) -> Tuple[models.Course, List[models.CourseChunk]]:
         """
         Process a course document with expected format:
         Line 1: Course Title: [title]
@@ -139,7 +133,7 @@ class DocumentProcessor:
                 continue
         
         # Create course object with title as ID
-        course = Course(
+        course = models.Course(
             title=course_title,
             course_link=course_link,
             instructor=instructor_name if instructor_name != "Unknown" else None
@@ -171,7 +165,7 @@ class DocumentProcessor:
                     lesson_text = '\n'.join(lesson_content).strip()
                     if lesson_text:
                         # Add lesson to course
-                        lesson = Lesson(
+                        lesson = models.Lesson(
                             lesson_number=current_lesson,
                             title=lesson_title,
                             lesson_link=lesson_link
@@ -187,7 +181,7 @@ class DocumentProcessor:
                             else:
                                 chunk_with_context = chunk
                             
-                            course_chunk = CourseChunk(
+                            course_chunk = models.CourseChunk(
                                 content=chunk_with_context,
                                 course_title=course.title,
                                 lesson_number=current_lesson,
@@ -220,7 +214,7 @@ class DocumentProcessor:
         if current_lesson is not None and lesson_content:
             lesson_text = '\n'.join(lesson_content).strip()
             if lesson_text:
-                lesson = Lesson(
+                lesson = models.Lesson(
                     lesson_number=current_lesson,
                     title=lesson_title,
                     lesson_link=lesson_link
@@ -233,7 +227,7 @@ class DocumentProcessor:
                   
                     chunk_with_context = f"Course {course_title} Lesson {current_lesson} content: {chunk}"
                     
-                    course_chunk = CourseChunk(
+                    course_chunk = models.CourseChunk(
                         content=chunk_with_context,
                         course_title=course.title,
                         lesson_number=current_lesson,
@@ -248,7 +242,7 @@ class DocumentProcessor:
             if remaining_content:
                 chunks = self.chunk_text(remaining_content)
                 for chunk in chunks:
-                    course_chunk = CourseChunk(
+                    course_chunk = models.CourseChunk(
                         content=chunk,
                         course_title=course.title,
                         chunk_index=chunk_counter

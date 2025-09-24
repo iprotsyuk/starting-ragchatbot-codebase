@@ -1,5 +1,10 @@
-from typing import Dict, List, Optional
 from dataclasses import dataclass
+import logging
+from typing import Dict, List, Optional
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Message:

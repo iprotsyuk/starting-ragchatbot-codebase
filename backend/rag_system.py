@@ -1,11 +1,17 @@
-from typing import List, Tuple, Optional, Dict
+import logging
 import os
-from document_processor import DocumentProcessor
-from vector_store import VectorStore
-from ai_generator import AIGenerator
-from session_manager import SessionManager
-from search_tools import ToolManager, CourseSearchTool
-from models import Course, Lesson, CourseChunk
+from typing import Dict, List, Optional, Tuple
+
+import ai_generator
+import document_processor
+import models
+import search_tools
+import session_manager
+import vector_store
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 
 class RAGSystem:
     """Main orchestrator for the Retrieval-Augmented Generation system"""
@@ -14,17 +20,19 @@ class RAGSystem:
         self.config = config
         
         # Initialize core components
-        self.document_processor = DocumentProcessor(config.CHUNK_SIZE, config.CHUNK_OVERLAP)
-        self.vector_store = VectorStore(config.CHROMA_PATH, config.EMBEDDING_MODEL, config.MAX_RESULTS)
-        self.ai_generator = AIGenerator(config.ANTHROPIC_API_KEY, config.ANTHROPIC_MODEL)
-        self.session_manager = SessionManager(config.MAX_HISTORY)
+        self.document_processor = document_processor.DocumentProcessor(config.CHUNK_SIZE, config.CHUNK_OVERLAP)
+        self.vector_store = vector_store.VectorStore(config.CHROMA_PATH, config.EMBEDDING_MODEL, config.MAX_RESULTS)
         
         # Initialize search tools
-        self.tool_manager = ToolManager()
-        self.search_tool = CourseSearchTool(self.vector_store)
+        self.tool_manager = search_tools.ToolManager()
+        self.search_tool = search_tools.CourseSearchTool(self.vector_store)
         self.tool_manager.register_tool(self.search_tool)
-    
-    def add_course_document(self, file_path: str) -> Tuple[Course, int]:
+        
+        # Initialize AI Generator with tools
+        self.ai_generator = ai_generator.AIGenerator(config.GEMINI_API_KEY, config.GEMINI_MODEL)
+        self.session_manager = session_manager.SessionManager(config.MAX_HISTORY)
+        
+    def add_course_document(self, file_path: str) -> Tuple[models.Course, int]:
         """
         Add a single course document to the knowledge base.
         
@@ -112,32 +120,36 @@ class RAGSystem:
         """
         # Create prompt for the AI with clear instructions
         prompt = f"""Answer this question about course materials: {query}"""
-        
+
         # Get conversation history if session exists
         history = None
         if session_id:
             history = self.session_manager.get_conversation_history(session_id)
         
         # Generate response using AI with tools
-        response = self.ai_generator.generate_response(
-            query=prompt,
-            conversation_history=history,
-            tools=self.tool_manager.get_tool_definitions(),
-            tool_manager=self.tool_manager
-        )
-        
-        # Get sources from the search tool
-        sources = self.tool_manager.get_last_sources()
+        try:
+            response = self.ai_generator.generate_response(
+                query=prompt,
+                conversation_history=history,
+                tools=self.tool_manager.get_tool_definitions(),
+                tool_manager=self.tool_manager
+            )
 
-        # Reset sources after retrieving them
-        self.tool_manager.reset_sources()
-        
-        # Update conversation history
-        if session_id:
-            self.session_manager.add_exchange(session_id, query, response)
-        
-        # Return response with sources from tool searches
-        return response, sources
+            # Get sources from the search tool
+            sources = self.tool_manager.get_last_sources()
+
+            # Reset sources after retrieving them
+            self.tool_manager.reset_sources()
+            
+            # Update conversation history
+            if session_id:
+                self.session_manager.add_exchange(session_id, query, response)
+            
+            # Return response with sources from tool searches
+            return response, sources
+        except Exception as e:
+            logger.exception(f"Error generating response:\n{e}")
+            raise
     
     def get_course_analytics(self) -> Dict:
         """Get analytics about the course catalog"""

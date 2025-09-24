@@ -1,8 +1,14 @@
-import anthropic
-from typing import List, Optional, Dict, Any
+import logging
+from typing import List, Optional
+
+from google import genai
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 
 class AIGenerator:
-    """Handles interactions with Anthropic's Claude API for generating responses"""
+    """Handles interactions with Gemini API for generating responses"""
     
     # Static system prompt to avoid rebuilding on each call
     SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to a comprehensive search tool for course information.
@@ -30,15 +36,8 @@ Provide only the direct answer to what was asked.
 """
     
     def __init__(self, api_key: str, model: str):
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = genai.Client(api_key=api_key)
         self.model = model
-        
-        # Pre-build base API parameters
-        self.base_params = {
-            "model": self.model,
-            "temperature": 0,
-            "max_tokens": 800
-        }
     
     def generate_response(self, query: str,
                          conversation_history: Optional[str] = None,
@@ -57,79 +56,82 @@ Provide only the direct answer to what was asked.
             Generated response as string
         """
         
-        # Build system content efficiently - avoid string ops when possible
-        system_content = (
-            f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
-            if conversation_history 
-            else self.SYSTEM_PROMPT
-        )
-        
         # Prepare API call parameters efficiently
-        api_params = {
-            **self.base_params,
-            "messages": [{"role": "user", "content": query}],
-            "system": system_content
+        config = {
+            "temperature": 0,
+            "max_output_tokens": 800
         }
-        
-        # Add tools if available
         if tools:
-            api_params["tools"] = tools
-            api_params["tool_choice"] = {"type": "auto"}
+            config["tools"] = tools
         
-        # Get response from Claude
-        response = self.client.messages.create(**api_params)
+        # Get response from Gemini
+        history = []
+        if conversation_history:
+            history.append({"role": "user", "parts": [{"text": conversation_history}]})
+        history.append({"role": "user", "parts": [{"text": self.SYSTEM_PROMPT}]})
         
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=history + [{"role": "user", "parts": [{"text": query}]}],
+            config=config
+        )
+
         # Handle tool execution if needed
-        if response.stop_reason == "tool_use" and tool_manager:
-            return self._handle_tool_execution(response, api_params, tool_manager)
+        if (
+            response.candidates[0].content.parts
+            and response.candidates[0].content.parts[0].function_call
+            and tool_manager
+        ):
+            return self._handle_tool_execution(query, response, tool_manager)
         
         # Return direct response
-        return response.content[0].text
+        return response.text
     
-    def _handle_tool_execution(self, initial_response, base_params: Dict[str, Any], tool_manager):
+    def _handle_tool_execution(self, user_query, initial_response, tool_manager):
         """
         Handle execution of tool calls and get follow-up response.
         
         Args:
+            user_query: The original user query string
             initial_response: The response containing tool use requests
-            base_params: Base API parameters
             tool_manager: Manager to execute tools
-            
+
         Returns:
             Final response text after tool execution
         """
-        # Start with existing messages
-        messages = base_params["messages"].copy()
-        
-        # Add AI's tool use response
-        messages.append({"role": "assistant", "content": initial_response.content})
-        
-        # Execute all tool calls and collect results
-        tool_results = []
-        for content_block in initial_response.content:
-            if content_block.type == "tool_use":
-                tool_result = tool_manager.execute_tool(
-                    content_block.name, 
-                    **content_block.input
-                )
-                
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": content_block.id,
-                    "content": tool_result
-                })
-        
-        # Add tool results as single message
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
-        
-        # Prepare final API call without tools
-        final_params = {
-            **self.base_params,
-            "messages": messages,
-            "system": base_params["system"]
+        # Prepare API call parameters efficiently
+        config = {
+            "temperature": 0,
+            "max_output_tokens": 800
         }
-        
+        # Build contents for follow-up call: user -> assistant (function_call) -> function (tool result)
+        initial_parts = initial_response.candidates[0].content.parts
+        contents = [
+            {"role": "user", "parts": [{"text": user_query}]},
+            {"role": "assistant", "parts": initial_parts}
+        ]
+
+        # Execute all tool calls and collect results
+        for part in initial_parts:
+            if part.function_call:
+                tool_response = tool_manager.execute_tool(
+                    part.function_call.name,
+                    **part.function_call.args
+                )
+                contents.append({
+                    "role": "function",
+                    "parts": [{
+                        "function_response": {
+                            "name": part.function_call.name,
+                            "response": {"result": tool_response}
+                        }
+                    }]
+                })
+
         # Get final response
-        final_response = self.client.messages.create(**final_params)
-        return final_response.content[0].text
+        final_response = self.client.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=config
+        )
+        return final_response.text
