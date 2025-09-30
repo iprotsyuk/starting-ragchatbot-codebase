@@ -107,6 +107,26 @@ header h1 {
     margin-bottom: 1.5rem;
 }
 
+.new-chat-button {
+    width: 100%;
+    padding: 0.5rem 0;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.new-chat-button:hover, .new-chat-button:focus {
+    background: var(--surface-hover);
+    color: var(--primary-color);
+    outline: none;
+}
+
 .sidebar-section:last-child {
     margin-bottom: 0;
 }
@@ -715,4 +735,30 @@ details[open] .suggested-header::before {
     .sidebar {
         width: 280px;
     }
+}
+
+.sources-content a,
+.sources-content a:visited {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    background-color: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.sources-content a:hover,
+.sources-content a:focus {
+    background-color: var(--surface-hover);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.sources-content a:active {
+    background-color: var(--background);
+    color: var(--primary-hover);
 }

@@ -70,7 +70,7 @@ class QueryRequest(pydantic.BaseModel):
 class QueryResponse(pydantic.BaseModel):
     """Response model for course queries"""
     answer: str
-    sources: List[str]
+    sources: List[dict]
     session_id: str
 
 
