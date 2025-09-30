@@ -26,7 +26,9 @@ class RAGSystem:
         # Initialize search tools
         self.tool_manager = search_tools.ToolManager()
         self.search_tool = search_tools.CourseSearchTool(self.vector_store)
+        self.outline_tool = search_tools.CourseOutlineTool(self.vector_store)
         self.tool_manager.register_tool(self.search_tool)
+        self.tool_manager.register_tool(self.outline_tool)
         
         # Initialize AI Generator with tools
         self.ai_generator = ai_generator.AIGenerator(config.GEMINI_API_KEY, config.GEMINI_MODEL)

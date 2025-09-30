@@ -107,6 +107,125 @@ class CourseSearchTool(Tool):
         return "\n\n".join(formatted)
 
 
+class CourseOutlineTool(Tool):
+    """Tool for fetching the outline of a course."""
+
+    def __init__(self, vector_store: vector_store.VectorStore):
+        self.vector_store = vector_store
+
+    def get_tool_definition(self) -> genai.types.Tool:
+        """Return Gemini tool definition for this tool"""
+        return genai.types.Tool(
+            function_declarations=[{
+                "name": "get_course_outline",
+                "description": "Get the outline of a course, including title, link, and all lesson titles.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "course_name": {
+                            "type": "string",
+                            "description": "The title of the course to get the outline for (e.g. 'MCP', 'Introduction')"
+                        }
+                    },
+                    "required": ["course_name"]
+                }
+            }]
+        )
+
+    def execute(self, course_name: str) -> str:
+        """
+        Execute the course outline search.
+
+        Args:
+            course_name: The course name to get the outline for.
+
+        Returns:
+            A formatted string of the course outline.
+        """
+        import json
+        logger.info(f"Executing CourseOutlineTool with course_name: '{course_name}'")
+
+        # First, resolve the course name to get the exact title
+        exact_course_title = self.vector_store._resolve_course_name(course_name)
+        if not exact_course_title:
+            return f"Could not find a course named '{course_name}'."
+
+        # Get the course metadata from the course_catalog collection
+        try:
+            course_meta_results = self.vector_store.course_catalog.get(ids=[exact_course_title])
+            if not course_meta_results or not course_meta_results['metadatas']:
+                return f"Could not retrieve metadata for course '{exact_course_title}'."
+        except Exception as e:
+            logger.error(f"Error fetching course metadata: {e}")
+            return "An error occurred while fetching course details."
+
+        # Extract and format the outline
+        metadata = course_meta_results['metadatas'][0]
+        course_title = metadata.get('title', 'Unknown Course')
+        course_link = metadata.get('course_link', 'Unknown Link')
+        lessons_json = metadata.get('lessons_json')
+
+        if not lessons_json:
+            return f"No lessons found for course '{course_title}'."
+
+        try:
+            lessons = json.loads(lessons_json)
+            if not lessons:
+                return f"No lessons listed for course '{course_title}'."
+        except json.JSONDecodeError:
+            return "Error parsing lesson data."
+
+        # Sort lessons by lesson number
+        sorted_lessons = sorted(lessons, key=lambda x: x.get('lesson_number', 0))
+
+        formatted = [
+            f"Course: {course_title}",
+            f"Link: {course_link}",
+            "Lessons:"
+        ]
+        for lesson in sorted_lessons:
+            lesson_num = lesson.get('lesson_number')
+            lesson_title = lesson.get('lesson_title')
+            if lesson_num is not None and lesson_title:
+                formatted.append(f"  - Lesson {lesson_num}: {lesson_title}")
+
+        return "\n".join(formatted)
+
+    def _format_outline_from_results(self, results: vector_store.SearchResults) -> str:
+        """Format search results into a course outline."""
+        if not results.metadata:
+            return "Could not find an outline for the specified course."
+
+        # We can get course title and link from the first result's metadata
+        first_meta = results.metadata[0]
+        course_title = first_meta.get('course_title', 'Unknown Course')
+        course_link = first_meta.get('course_link', 'Unknown Link')
+
+        lessons = {}
+        for meta in results.metadata:
+            lesson_num = meta.get('lesson_number')
+            lesson_title = meta.get('lesson_title')
+            if lesson_num is not None and lesson_title is not None:
+                # Use a dict to store unique lessons
+                lessons[lesson_num] = lesson_title
+
+        if not lessons:
+            return f"No lessons found for course '{course_title}'."
+
+        # Sort lessons by lesson number
+        sorted_lessons = sorted(lessons.items())
+
+        formatted = [
+            f"Course: {course_title}",
+            f"Link: {course_link}",
+            "Lessons:"
+        ]
+        for lesson_num, lesson_title in sorted_lessons:
+            formatted.append(f"  - Lesson {lesson_num}: {lesson_title}")
+
+        return "\n".join(formatted)
+
+
 class ToolManager:
     """Manages available tools for the AI"""
     
