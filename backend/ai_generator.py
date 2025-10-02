@@ -16,7 +16,7 @@ class AIGenerator:
 Search Tool Usage:
 - Use the search tool `search_course_content` **only** for questions about specific course content or detailed educational materials.
 - For queries about a course outline, use the `get_course_outline` tool. When you do, return the course title, link, and the number and title of each lesson.
-- **One search per query maximum**
+- **You can make up to 2 sequential tool calls to answer complex questions.**
 - Synthesize search results into accurate, fact-based responses
 - If search yields no results, state this clearly without offering alternatives
 
@@ -35,6 +35,7 @@ All responses must be:
 4. **Example-supported** - Include relevant examples when they aid understanding
 Provide only the direct answer to what was asked.
 """
+    MAX_TOOL_ROUNDS = 2
     
     def __init__(self, api_key: str, model: str):
         self.client = genai.Client(api_key=api_key)
@@ -65,74 +66,61 @@ Provide only the direct answer to what was asked.
         if tools:
             config["tools"] = tools
         
-        # Get response from Gemini
+        # Build conversation history
         history = []
         if conversation_history:
             history.append({"role": "user", "parts": [{"text": conversation_history}]})
         history.append({"role": "user", "parts": [{"text": self.SYSTEM_PROMPT}]})
-        
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=history + [{"role": "user", "parts": [{"text": query}]}],
-            config=config
-        )
+        history.append({"role": "user", "parts": [{"text": query}]})
 
-        # Handle tool execution if needed
-        if (
-            response.candidates[0].content.parts
-            and response.candidates[0].content.parts[0].function_call
-            and tool_manager
-        ):
-            return self._handle_tool_execution(query, response, tool_manager)
-        
-        # Return direct response
-        return response.text
-    
-    def _handle_tool_execution(self, user_query, initial_response, tool_manager):
-        """
-        Handle execution of tool calls and get follow-up response.
-        
-        Args:
-            user_query: The original user query string
-            initial_response: The response containing tool use requests
-            tool_manager: Manager to execute tools
+        for _ in range(self.MAX_TOOL_ROUNDS):
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=history,
+                config=config
+            )
 
-        Returns:
-            Final response text after tool execution
-        """
-        # Prepare API call parameters efficiently
-        config = {
-            "temperature": 0,
-            "max_output_tokens": 800
-        }
-        # Build contents for follow-up call: user -> assistant (function_call) -> function (tool result)
-        initial_parts = initial_response.candidates[0].content.parts
-        contents = [
-            {"role": "user", "parts": [{"text": user_query}]},
-            {"role": "assistant", "parts": initial_parts}
-        ]
+            # If no tool call, return the response
+            if not (
+                response.candidates and
+                response.candidates[0].content.parts and
+                response.candidates[0].content.parts[0].function_call
+            ):
+                return response.text
 
-        # Execute all tool calls and collect results
-        for part in initial_parts:
-            if part.function_call:
-                tool_response = tool_manager.execute_tool(
-                    part.function_call.name,
-                    **part.function_call.args
-                )
-                contents.append({
-                    "role": "function",
-                    "parts": [{
-                        "function_response": {
-                            "name": part.function_call.name,
-                            "response": {"result": tool_response}
-                        }
-                    }]
-                })
+            # Handle tool execution if needed
+            if not tool_manager:
+                logger.warning("Model requested a tool call, but no tool manager was provided.")
+                return response.text
 
-        # Get final response
+            # Append the assistant's response with tool call to history
+            history.append(response.candidates[0].content)
+
+            # Execute all tool calls and collect results
+            for part in response.candidates[0].content.parts:
+                if part.function_call:
+                    try:
+                        tool_response = tool_manager.execute_tool(
+                            part.function_call.name,
+                            **part.function_call.args
+                        )
+                        history.append({
+                            "role": "function",
+                            "parts": [{
+                                "function_response": {
+                                    "name": part.function_call.name,
+                                    "response": {"result": tool_response}
+                                }
+                            }]
+                        })
+                    except Exception as e:
+                        logger.error(f"Error executing tool {part.function_call.name}: {e}")
+                        return "An error occurred while executing the tool."
+
+        # After max rounds, get a final response
         final_response = self.client.models.generate_content(
             model=self.model,
-            contents=contents,
+            contents=history,
             config=config
         )
         return final_response.text
